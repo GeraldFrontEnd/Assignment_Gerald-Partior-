@@ -2,7 +2,7 @@ import os
 import sys
 import json
 import argparse
-import requests
+import hvac
 
 def get_env(name: str, default: str = None) -> str:
     val = os.getenv(name, default)
@@ -12,26 +12,23 @@ def get_env(name: str, default: str = None) -> str:
 
 def get_secret_kv2(mount: str, path: str) -> dict:
     """
-    Retrieve a secret from Vault KV v2.
-    Assumes KV v2 at mount (e.g., 'secret') and dev token via env.
+    Retrieve a secret from Vault KV v2 using hvac.
     """
     vault_addr = get_env("VAULT_ADDR")
     vault_token = get_env("VAULT_TOKEN")
-    url = f"{vault_addr}/v1/{mount}/data/{path}"
-    headers = {"X-Vault-Token": vault_token}
 
-    resp = requests.get(url, headers=headers, timeout=5)
-    if resp.status_code == 200:
-        payload = resp.json()
-        return payload.get("data", {}).get("data", {})
-    elif resp.status_code == 404:
+    client = hvac.Client(url=vault_addr, token=vault_token)
+    if not client.is_authenticated():
+        raise RuntimeError("Vault authentication failed")
+
+    try:
+        secret = client.secrets.kv.v2.read_secret_version(
+            mount_point=mount,
+            path=path
+        )
+        return secret["data"]["data"]
+    except hvac.exceptions.InvalidPath:
         raise KeyError(f"Secret not found at {mount}/{path}")
-    else:
-        try:
-            err = resp.json()
-        except ValueError:
-            err = {"message": resp.text}
-        raise RuntimeError(f"Vault error {resp.status_code}: {err}")
 
 def main():
     parser = argparse.ArgumentParser(description="Retrieve secrets from Vault KV v2")
@@ -48,4 +45,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-d
+
