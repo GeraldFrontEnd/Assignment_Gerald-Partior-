@@ -1,4 +1,2 @@
-hvac==1.2.1
-requests==2.31.0
-pytest==7.4.4
-pip-audit==2.7.3
+requests==2.32.3
+pytest==8.2.0
