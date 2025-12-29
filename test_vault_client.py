@@ -1,7 +1,7 @@
 import os
 import time
-import requests
 import pytest
+import hvac
 
 from vault_client import get_secret_kv2
 
@@ -11,22 +11,19 @@ MOUNT = "secret"
 PATH = "app/config"
 
 def seed_secret():
-    url = f"{VAULT_ADDR}/v1/{MOUNT}/data/{PATH}"
-    headers = {"X-Vault-Token": VAULT_TOKEN}
-    payload = {"data": {"username": "demo", "password": "s3cr3t"}}
-    r = requests.post(url, headers=headers, json=payload, timeout=5)
-    assert r.status_code in (200, 204), f"Failed to seed secret: {r.status_code} {r.text}"
+    client = hvac.Client(url=VAULT_ADDR, token=VAULT_TOKEN)
+    client.secrets.kv.v2.create_or_update_secret(
+        mount_point=MOUNT,
+        path=PATH,
+        secret={"username": "demo", "password": "s3cr3t"}
+    )
 
 @pytest.fixture(scope="session", autouse=True)
 def ensure_vault_ready():
-    health = f"{VAULT_ADDR}/v1/sys/health"
+    client = hvac.Client(url=VAULT_ADDR, token=VAULT_TOKEN)
     for _ in range(30):
-        try:
-            r = requests.get(health, timeout=2)
-            if r.status_code in (200, 429, 472, 473):
-                break
-        except Exception:
-            pass
+        if client.is_authenticated():
+            break
         time.sleep(1)
     seed_secret()
 
