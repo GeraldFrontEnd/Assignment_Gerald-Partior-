@@ -1,0 +1,92 @@
+name: CI - build test with Vault
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      vault:
+        image: hashicorp/vault:1.15
+        options: >-
+          --cap-add=IPC_LOCK
+        ports:
+          - 8200:8200
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: root
+        command: server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200
+
+    env:
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_TOKEN: root
+      PIP_CACHE_DIR: ${{ runner.temp }}/pip-cache
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Wait for Vault to be ready
+        run: |
+          for i in $(seq 1 30); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" $VAULT_ADDR/v1/sys/health || true)
+            if [ "$status" = "200" ] || [ "$status" = "429" ] || [ "$status" = "472" ] || [ "$status" = "473" ]; then
+              echo "Vault ready (status $status)"
+              break
+            fi
+            echo "Vault not ready yet (status $status). Retrying..."
+            sleep 1
+          done
+          curl -s $VAULT_ADDR/v1/sys/health | jq .
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest hvac requests
+
+      - name: Enable KV v2 at secret mount
+        run: |
+          curl -s -X POST -H "X-Vault-Token: $VAULT_TOKEN" \
+            --data '{"type":"kv","options":{"version":"2"}}' \
+            $VAULT_ADDR/v1/sys/mounts/secret || true
+
+      - name: Seed secret for tests
+        run: |
+          curl -s -X POST -H "X-Vault-Token: $VAULT_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data '{"data":{"username":"demo","password":"s3cr3t"}}' \
+            $VAULT_ADDR/v1/secret/data/app/config | jq .
+
+      - name: Compile code if needed
+        run: |
+         #Compile and build the program code and system for the CI Pipeline
+          if [ -f setup.py ]; then python -m build || true; fi
+          if [ -f package.json ]; then npm ci && npm run build || true; fi
+
+      - name: Run validation tests
+        run: |
+          pytest -q
+
+      - name: Dependency scan with pip-audit
+        uses: trailofbits/pip-audit-action@v1
+        with:
+          format: 'text'
