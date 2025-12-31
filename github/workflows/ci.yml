@@ -11,17 +11,6 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
-    services:
-      vault:
-        image: hashicorp/vault:1.15
-        options: >-
-          --cap-add=IPC_LOCK
-        ports:
-          - 8200:8200
-        env:
-          VAULT_DEV_ROOT_TOKEN_ID: root
-        command: server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200
-
     env:
       VAULT_ADDR: http://127.0.0.1:8200
       VAULT_TOKEN: root
@@ -30,6 +19,16 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Start Vault dev container
+        run: |
+          docker run -d --name vault-dev \
+            --cap-add=IPC_LOCK \
+            -e VAULT_DEV_ROOT_TOKEN_ID=root \
+            -p 8200:8200 \
+            hashicorp/vault:1.15 server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200
+          # show container status
+          docker ps --filter "name=vault-dev" --format "table {{.ID}}\t{{.Image}}\t{{.Status}}"
 
       - name: Wait for Vault to be ready
         run: |
@@ -78,7 +77,7 @@ jobs:
 
       - name: Compile code if needed
         run: |
-         #Compile and build the program code and system for the CI Pipeline
+          # Replace these with your actual build commands if required
           if [ -f setup.py ]; then python -m build || true; fi
           if [ -f package.json ]; then npm ci && npm run build || true; fi
 
