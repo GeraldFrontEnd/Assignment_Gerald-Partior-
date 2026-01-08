@@ -70,6 +70,7 @@ jobs:
           pytest -q
 
       - name: Dependency scan with pip-audit
-        uses: trailofbits/pip-audit-action@v1
-        with:
-          format: 'text'
+        run: |
+          pip install pip-audit
+          pip-audit --format text
+
