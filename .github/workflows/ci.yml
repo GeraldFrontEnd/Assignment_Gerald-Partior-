@@ -10,6 +10,7 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15   # prevent the job from hanging indefinitely
 
     env:
       VAULT_ADDR: http://127.0.0.1:8200
@@ -18,6 +19,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Start Vault dev container
         run: |
@@ -28,17 +32,26 @@ jobs:
             hashicorp/vault:1.15 server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200
           docker ps --filter "name=vault-dev" --format "table {{.ID}}\t{{.Image}}\t{{.Status}}"
 
-      - name: Wait for Vault to be ready
+      - name: Wait for Vault to be ready (fast-fail)
         run: |
+          ready=0
           for i in $(seq 1 30); do
             status=$(curl -s -o /dev/null -w "%{http_code}" $VAULT_ADDR/v1/sys/health || true)
             if [ "$status" = "200" ] || [ "$status" = "429" ] || [ "$status" = "472" ] || [ "$status" = "473" ]; then
-              echo "Vault ready (status $status)"
+              echo "✅ Vault ready (status $status)"
+              ready=1
               break
             fi
             echo "Vault not ready yet (status $status). Retrying..."
             sleep 1
           done
+
+          if [ "$ready" -ne 1 ]; then
+            echo "❌ Vault did not start within 30 seconds. Failing fast."
+            docker logs vault-dev || true
+            exit 1
+          fi
+
           curl -s $VAULT_ADDR/v1/sys/health | jq .
 
       - name: Set up Python
@@ -49,8 +62,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest hvac requests
+          pip install -r requirements.txt
 
       - name: Enable KV v2 at secret mount
         run: |
@@ -66,11 +78,9 @@ jobs:
             $VAULT_ADDR/v1/secret/data/app/config | jq .
 
       - name: Run validation tests
-        run: |
-          pytest -q
+        run: pytest -q
 
       - name: Dependency scan with pip-audit
         run: |
           pip install pip-audit
           pip-audit --format text
-
