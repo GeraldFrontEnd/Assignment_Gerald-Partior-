@@ -83,4 +83,4 @@ jobs:
       - name: Dependency scan with pip-audit
         run: |
           pip install pip-audit
-          pip-audit --format json
+          pip-audit --format columns
