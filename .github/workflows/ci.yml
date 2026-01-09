@@ -82,6 +82,12 @@ jobs:
             --data '{"data":{"username":"demo","password":"s3cr3t"}}' \
             $VAULT_ADDR/v1/secret/data/app/config | jq .
 
+
+      - name: Verify secret exists
+        run: |
+          curl -s -H "X-Vault-Token: $VAULT_TOKEN" \
+            $VAULT_ADDR/v1/secret/data/app/config | jq .
+
       - name: Run validation tests
         run: pytest -q
 
